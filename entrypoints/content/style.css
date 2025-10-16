@@ -1,0 +1,17 @@
+/* 全局样式重置，避免网页样式影响面板 */
+#translator-floating-panel {
+  all: initial;
+  position: fixed;
+  z-index: 2147483647;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+#translator-floating-panel * {
+  box-sizing: border-box;
+}
+
+/* 确保面板可见 */
+#translator-floating-panel > div {
+  pointer-events: auto;
+}
+
