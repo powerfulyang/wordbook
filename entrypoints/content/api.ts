@@ -1,3 +1,5 @@
+import { getUserSettings } from './storage';
+
 // 本地字典数据类型
 interface DictWord {
   name: string;
@@ -15,6 +17,7 @@ export interface WordInfo {
   usAudio?: string;
   ukAudio?: string;
   translations?: string[];
+  translationSource?: 'dict' | 'ai';
   definitions?: Array<{
     pos: string; // 词性
     meanings: string[];
@@ -80,13 +83,13 @@ async function searchWordInDicts(word: string): Promise<DictWord | null> {
   // 逐个加载字典并搜索
   for (const { name, loader } of DICTIONARY_LOADERS) {
     const dict = await loadDictionary(name, loader);
-    
+
     if (!dict) continue;
 
-    const found = dict.find((item: DictWord) => 
+    const found = dict.find((item: DictWord) =>
       item.name.toLowerCase() === searchWord
     );
-    
+
     if (found) {
       return found;
     }
@@ -125,8 +128,8 @@ export async function fetchWordInfo(word: string): Promise<WordInfo | null> {
     return {
       word: trimmedWord,
       phonetics,
-      usAudio: `https://dict.youdao.com/dictvoice?type=0&audio=${encodeURIComponent(trimmedWord)}`,
-      ukAudio: `https://dict.youdao.com/dictvoice?type=1&audio=${encodeURIComponent(trimmedWord)}`,
+      usAudio: getTTSUrl(trimmedWord, 'us'),
+      ukAudio: getTTSUrl(trimmedWord, 'uk'),
       translations: translations.length > 0 ? translations : ['暂无释义'],
       definitions: [],
       examples: [],
@@ -144,28 +147,122 @@ export function getSimpleWordInfo(word: string): WordInfo {
   const trimmedWord = word.trim();
   return {
     word: trimmedWord,
-    usAudio: `https://dict.youdao.com/dictvoice?type=0&audio=${encodeURIComponent(trimmedWord)}`,
-    ukAudio: `https://dict.youdao.com/dictvoice?type=1&audio=${encodeURIComponent(trimmedWord)}`,
+    usAudio: getTTSUrl(trimmedWord, 'us'),
+    ukAudio: getTTSUrl(trimmedWord, 'uk'),
   };
 }
 
 /**
  * 播放单词发音
  */
-export function playWordAudio(
-  word: string,
-  type: 'us' | 'uk',
-  volume: number = 0.8
-): HTMLAudioElement {
-  const audioType = type === 'us' ? 0 : 1;
-  const url = `https://dict.youdao.com/dictvoice?type=${audioType}&audio=${encodeURIComponent(word)}`;
-  
+export function getTTSUrl(text: string, type: 'us' | 'uk' | 'tts', defaultVoice: 'us' | 'uk' = 'us'): string {
+  const endpoint = 'https://us4ever.com/api/tts';
+  let voice = '';
+  if (type === 'us') {
+    voice = 'en-US-AriaNeural';
+  } else if (type === 'uk') {
+    voice = 'en-GB-SoniaNeural';
+  } else {
+    voice = defaultVoice === 'uk' ? 'en-GB-SoniaNeural' : 'en-US-AriaNeural';
+  }
+  return `${endpoint}?text=${encodeURIComponent(text)}&voice=${voice}`;
+}
+
+export let currentPlayingAudio: HTMLAudioElement | null = null;
+
+export async function playUnifiedAudio(
+  text: string,
+  type: 'us' | 'uk' | 'tts',
+  options: {
+    volume?: number;
+    defaultVoice?: 'us' | 'uk';
+    onStart?: () => void;
+    onEnded?: () => void;
+  } = {}
+): Promise<HTMLAudioElement> {
+  const { volume = 0.8, defaultVoice = 'us', onStart, onEnded } = options;
+
+  stopUnifiedAudio();
+
+  const url = getTTSUrl(text, type, defaultVoice);
   const audio = new Audio(url);
   audio.volume = volume;
-  audio.play().catch(err => {
+  currentPlayingAudio = audio;
+
+  if (onStart) {
+    onStart();
+  }
+
+  const handleEnded = () => {
+    if (onEnded) onEnded();
+  };
+
+  audio.addEventListener('ended', handleEnded, { once: true });
+  audio.addEventListener('error', handleEnded, { once: true });
+
+  try {
+    await audio.play();
+  } catch (err) {
     console.error('播放失败:', err);
-  });
-  
+    if (onEnded) onEnded();
+  }
+
   return audio;
 }
+
+export function stopUnifiedAudio() {
+  if (currentPlayingAudio) {
+    currentPlayingAudio.pause();
+    currentPlayingAudio.currentTime = 0;
+    currentPlayingAudio = null;
+  }
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+}
+
+
+
+/**
+ * 使用 Dify API 翻译句子
+ */
+export async function translateSentence(text: string): Promise<string | null> {
+  try {
+    const settings = await getUserSettings();
+    const endpoint = settings.difyApiEndpoint;
+    const apiKey = settings.difyApiKey;
+
+    if (!endpoint || !apiKey) {
+      console.warn('未配置 Dify API Endpoint 或 Key');
+      return '请先在插件设置中配置 AI 翻译 Endpoint 和 API Key';
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        inputs: { query: text, },
+        query: text,
+        response_mode: 'blocking',
+        user: 'test-user'
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Dify API 错误:', errorData);
+      return `翻译请求失败: ${response.statusText}`;
+    }
+
+    const data = await response.json();
+    return data.answer || null;
+  } catch (e) {
+    console.error('Dify API 报错:', e);
+    return null;
+  }
+}
+
 

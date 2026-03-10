@@ -11,12 +11,15 @@ node_modules
 .output
 stats.html
 stats-*.json
-.wxt
-web-ext.config.ts
+.wxt/*
+!.wxt/chrome-data
+.wxt/chrome-data/*
+!.wxt/chrome-data/.gitkeep
+# web-ext.config.ts
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+# .vscode/*
+# !.vscode/extensions.json
 .idea
 .DS_Store
 *.suo

@@ -71,16 +71,6 @@ pnpm zip
 
 ## API 说明
 
-### 音标和释义 API
-使用 Dictionary API 获取音标和释义：
-- 接口：`https://api.dictionaryapi.dev/api/v2/entries/en/{word}`
-- 完全免费、无需 API Key
-- 返回详细的单词信息，包括：
-  - 国际音标（IPA）
-  - 词性和释义
-  - 例句
-- 自动区分美式和英式音标
-
 ### 发音 API
 使用有道词典在线发音接口：
 - 美音：`https://dict.youdao.com/dictvoice?type=0&audio={word}`
@@ -130,15 +120,6 @@ entrypoints/
   - `phonetics`: 音标信息（美式/英式）
   - `addedTime`: 添加时间
   - `note`: 备注（可选）
-
-## 设计亮点
-
-- 🌈 **渐变背景**: 使用紫色渐变背景，视觉效果出众
-- ✨ **磨砂玻璃**: backdrop-filter 实现磨砂玻璃效果
-- 🎭 **流畅动画**: 淡入动画和悬停效果
-- 🎯 **响应式按钮**: 悬停和点击状态反馈
-- 📱 **边界检测**: 自动调整位置避免超出屏幕
-- 🔤 **音标展示**: 自动区分美式和英式音标，优雅展示
 
 ## 界面预览
 

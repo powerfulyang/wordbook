@@ -9,4 +9,8 @@ export default defineConfig({
       UnoCSS(),
     ],
   }),
+  manifest: {
+    permissions: ['storage'],
+    host_permissions: ['<all_urls>']
+  },
 });

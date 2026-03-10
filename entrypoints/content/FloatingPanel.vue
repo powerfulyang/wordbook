@@ -1,78 +1,75 @@
 <template>
-  <div 
-    v-if="visible"
-    ref="panelRef"
-    class="floating-panel"
-    :class="`theme-${theme}`"
-    :style="panelStyle"
-  >
+  <div v-if="visible" ref="panelRef" class="wordbook-panel" :style="panelStyle">
     <!-- 加载状态 -->
-    <div v-if="loading" class="loading-state">
-      <div class="loading-spinner"></div>
-      <span>查询中...</span>
+    <div v-if="loading" class="state-view">
+      <div class="arco-spinner"></div>
+      <span class="state-text">查询中...</span>
     </div>
 
     <!-- 内容 -->
-    <div v-else-if="wordInfo" class="panel-content">
+    <div v-else-if="wordInfo" class="panel-main">
       <!-- 标题栏 -->
       <div class="panel-header">
-        <div class="word-title">{{ wordInfo.word }}</div>
+        <h2 class="word-text" :class="{ 'is-sentence': isSentence }">{{ wordInfo.word }}</h2>
         <div class="header-actions">
-          <button 
-            class="icon-btn favorite-btn"
-            :class="{ favorited: isFavorited }"
-            @click="handleToggleFavorite"
-            title="收藏"
-          >
+          <button class="action-btn btn-star" :class="{ favorited: isFavorited }" @click="handleToggleFavorite"
+            title="收藏">
             <IconStarFill v-if="isFavorited" :size="16" />
             <IconStar v-else :size="16" />
           </button>
-          <button class="icon-btn close-btn" @click="handleClose" title="关闭">
-            <IconClose :size="16" />
+          <button class="action-btn btn-close" @click="handleClose" title="关闭">
+            <IconClose :size="14" />
           </button>
         </div>
       </div>
 
-      <!-- 音标和发音 -->
-      <div v-if="showPhonetics && (wordInfo.phonetics?.us || wordInfo.phonetics?.uk)" class="phonetics-block">
-        <div class="phonetics-container">
-          <div v-if="wordInfo.phonetics.us" class="phonetic-row">
-            <div class="phonetic-info">
-              <span class="region-label">美</span>
-              <span class="phonetic-text">/{{ wordInfo.phonetics.us }}/</span>
-            </div>
-            <button class="play-button" @click="playAudio('us')" title="播放美式发音">
-              <IconSound :size="16" />
-            </button>
-          </div>
-          <div v-if="wordInfo.phonetics.uk" class="phonetic-row">
-            <div class="phonetic-info">
-              <span class="region-label">英</span>
-              <span class="phonetic-text">/{{ wordInfo.phonetics.uk }}/</span>
-            </div>
-            <button class="play-button" @click="playAudio('uk')" title="播放英式发音">
-              <IconSound :size="16" />
-            </button>
-          </div>
+      <!-- 音标和发音 (如果是单词) -->
+      <div v-if="!isSentence && showPhonetics && (wordInfo.phonetics?.us || wordInfo.phonetics?.uk)"
+        class="phonetics-row">
+        <div v-if="wordInfo.phonetics.us" class="phonetic-item" :class="{ 'is-playing': playingType === 'us' }"
+          @click="playAudio('us')" title="播放美式发音">
+          <span class="ph-label us-label">US</span>
+          <span class="ph-text">/{{ wordInfo.phonetics.us }}/</span>
+          <IconSound class="ph-icon" :size="14" />
+        </div>
+        <div v-if="wordInfo.phonetics.uk" class="phonetic-item" :class="{ 'is-playing': playingType === 'uk' }"
+          @click="playAudio('uk')" title="播放英式发音">
+          <span class="ph-label uk-label">UK</span>
+          <span class="ph-text">/{{ wordInfo.phonetics.uk }}/</span>
+          <IconSound class="ph-icon" :size="14" />
         </div>
       </div>
 
-      <!-- 翻译 -->
-      <div class="translations-section">
-        <div v-if="wordInfo.translations && wordInfo.translations.length > 0" class="translation-list">
-          <div v-for="(trans, idx) in wordInfo.translations.slice(0, 5)" :key="idx" class="translation-item">
-            {{ trans }}
-          </div>
+      <!-- 句子发音 (如果是句子) -->
+      <div v-if="isSentence" class="phonetics-row">
+        <div class="phonetic-item sentence-tts" :class="{ 'is-playing': playingType === 'tts' }"
+          @click="playAudio('tts')" title="朗读句子">
+          <span class="ph-label us-label">朗读</span>
+          <span class="ph-text">Edge TTS</span>
+          <IconSound class="ph-icon" :size="14" />
         </div>
-        <div v-else class="no-translation">
+      </div>
+
+      <!-- 分割线 -->
+      <div class="panel-divider"></div>
+
+      <!-- 翻译 -->
+      <div class="translations-box">
+        <template v-if="wordInfo.translations && wordInfo.translations.length > 0">
+          <div v-for="(trans, idx) in wordInfo.translations.slice(0, 5)" :key="idx" class="trans-item">
+            <span class="trans-dot"></span>
+            <span class="trans-text">{{ trans }}</span>
+          </div>
+        </template>
+        <div v-else class="empty-state">
           暂无释义
         </div>
       </div>
     </div>
 
     <!-- 错误状态 -->
-    <div v-else class="error-state">
-      <span>未找到单词信息</span>
+    <div v-else class="state-view">
+      <span class="state-text">未找到单词信息 😔</span>
     </div>
   </div>
 </template>
@@ -81,140 +78,178 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { IconSound, IconStar, IconStarFill, IconClose } from '@arco-design/web-vue/es/icon';
 import type { WordInfo } from './api';
-import { playWordAudio } from './api';
-import { 
-  getUserSettings, 
+import { fetchWordInfo, playUnifiedAudio, stopUnifiedAudio, translateSentence } from './api';
+import {
+  getUserSettings,
   addWordToHistory,
   addWordToFavorites,
   removeWordFromFavorites,
   isWordFavorited,
   type UserSettings
 } from './storage';
+import './style.css';
 
-const props = defineProps<{
-  visible: boolean;
-  position: { x: number; y: number };
-  wordInfo: WordInfo | null;
-  loading: boolean;
-}>();
-
-const emit = defineEmits<{
-  close: [];
-  toggleFavorite: [word: string, phonetics?: { us?: string; uk?: string }];
-}>();
+// 内部状态
+const visible = ref(false);
+const position = ref({ x: 0, y: 0 });
+const wordInfo = ref<WordInfo | null>(null);
+const loading = ref(false);
 
 const panelRef = ref<HTMLElement>();
 const settings = ref<UserSettings | null>(null);
 const isFavorited = ref(false);
-const currentAudio = ref<HTMLAudioElement | null>(null);
-// 预加载的音频对象
-const preloadedUsAudio = ref<HTMLAudioElement | null>(null);
-const preloadedUkAudio = ref<HTMLAudioElement | null>(null);
+// 音频对象状态
+const playingType = ref<'us' | 'uk' | 'tts' | null>(null);
+const isSentence = ref(false);
 
-const theme = computed(() => settings.value?.theme || 'purple');
 const showPhonetics = computed(() => settings.value?.showPhonetics ?? true);
 
 const panelStyle = computed(() => {
   return {
-    left: `${props.position.x}px`,
-    top: `${props.position.y}px`,
+    left: `${position.value.x}px`,
+    top: `${position.value.y}px`,
   };
 });
 
-// 预加载音频
+// 预加载音频 (弃用，由 playUnifiedAudio 内部处理)
 const preloadAudio = (word: string) => {
-  // 清理旧的预加载音频
-  if (preloadedUsAudio.value) {
-    preloadedUsAudio.value.pause();
-    preloadedUsAudio.value = null;
-  }
-  if (preloadedUkAudio.value) {
-    preloadedUkAudio.value.pause();
-    preloadedUkAudio.value = null;
-  }
-  
-  const volume = settings.value?.volume ?? 0.8;
-  
-  // 预加载美式发音
-  const usAudioUrl = `https://dict.youdao.com/dictvoice?type=0&audio=${encodeURIComponent(word)}`;
-  preloadedUsAudio.value = new Audio(usAudioUrl);
-  preloadedUsAudio.value.volume = volume;
-  preloadedUsAudio.value.preload = 'auto';
-  
-  // 预加载英式发音
-  const ukAudioUrl = `https://dict.youdao.com/dictvoice?type=1&audio=${encodeURIComponent(word)}`;
-  preloadedUkAudio.value = new Audio(ukAudioUrl);
-  preloadedUkAudio.value.volume = volume;
-  preloadedUkAudio.value.preload = 'auto';
 };
 
 // 播放音频
-const playAudio = (type: 'us' | 'uk') => {
-  if (!props.wordInfo) return;
-  
-  // 停止当前播放
-  if (currentAudio.value) {
-    currentAudio.value.pause();
-    currentAudio.value.currentTime = 0;
-  }
-  
-  // 使用预加载的音频或创建新的
-  const audioToPlay = type === 'us' ? preloadedUsAudio.value : preloadedUkAudio.value;
-  
-  if (audioToPlay) {
-    audioToPlay.currentTime = 0;
-    audioToPlay.play().catch(err => {
-      console.error('播放失败:', err);
-    });
-    currentAudio.value = audioToPlay;
-  } else {
-    // 如果预加载失败，使用原来的方式
-    const volume = settings.value?.volume ?? 0.8;
-    currentAudio.value = playWordAudio(props.wordInfo.word, type, volume);
-  }
+const playAudio = (type: 'us' | 'uk' | 'tts') => {
+  if (!wordInfo.value) return;
+
+  playingType.value = type;
+
+  playUnifiedAudio(wordInfo.value.word, type, {
+    volume: settings.value?.volume ?? 0.8,
+    defaultVoice: settings.value?.defaultVoice === 'uk' ? 'uk' : 'us',
+    onStart: () => {
+      playingType.value = type;
+    },
+    onEnded: () => {
+      playingType.value = null;
+    }
+  });
 };
 
 // 切换收藏
 const handleToggleFavorite = async () => {
-  if (!props.wordInfo) return;
-  
-  emit('toggleFavorite', props.wordInfo.word, props.wordInfo.phonetics);
+  if (!wordInfo.value) return;
+
+  if (isFavorited.value) {
+    await removeWordFromFavorites(wordInfo.value.word);
+  } else {
+    await addWordToFavorites(wordInfo.value.word, wordInfo.value.phonetics);
+  }
   isFavorited.value = !isFavorited.value;
 };
 
 // 关闭面板
 const handleClose = () => {
-  // 停止当前播放
-  if (currentAudio.value) {
-    currentAudio.value.pause();
-    currentAudio.value = null;
+  stopUnifiedAudio();
+  playingType.value = null;
+
+  visible.value = false;
+  wordInfo.value = null;
+};
+
+// 显示提示消息
+const showToast = (message: string) => {
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 999999;
+    animation: fadeIn 0.3s ease-out;
+  `;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s';
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+};
+
+// 显示面板
+const showPanel = async (text: string, x: number, y: number) => {
+  const trimmedText = text.trim();
+
+  if (!trimmedText) {
+    return;
   }
-  
-  // 清理预加载的音频
-  if (preloadedUsAudio.value) {
-    preloadedUsAudio.value.pause();
-    preloadedUsAudio.value = null;
+
+  // 正在加载时占位对齐面板位置
+  const panelWidth = 350; // 预估宽度，用于位置调整
+  const panelHeight = 200; // 预估高度
+  let adjustedX = x + 12;
+  let adjustedY = y + 15;
+
+  // 确保面板不会超出窗口边界
+  if (adjustedX + panelWidth > window.innerWidth) {
+    adjustedX = x - panelWidth - 10;
   }
-  if (preloadedUkAudio.value) {
-    preloadedUkAudio.value.pause();
-    preloadedUkAudio.value = null;
+  if (adjustedY + panelHeight > window.innerHeight) {
+    adjustedY = y - panelHeight - 10;
   }
-  
-  emit('close');
+
+  adjustedX = Math.max(10, adjustedX);
+  adjustedY = Math.max(10, adjustedY);
+
+  position.value = { x: adjustedX, y: adjustedY };
+
+  loading.value = true;
+  visible.value = true;
+
+  // 获取单词信息
+  let info = await fetchWordInfo(trimmedText);
+  const isMultiWord = trimmedText.includes(' ');
+
+  // 如果未找到单词，但它是句子，则启用句子模式
+  if (!info) {
+    if (isMultiWord || trimmedText.length > 20) {
+      const aiTranslation = await translateSentence(trimmedText);
+      info = {
+        word: trimmedText,
+        translations: aiTranslation ? [aiTranslation] : ['使用 Edge TTS 朗读该句子。'],
+        translationSource: aiTranslation ? 'ai' : 'dict'
+      };
+      isSentence.value = true;
+    } else {
+      loading.value = false;
+      showToast(`未找到单词"${trimmedText}"的释义`);
+      visible.value = false;
+      return;
+    }
+  } else {
+    isSentence.value = false;
+  }
+
+  loading.value = false;
+  wordInfo.value = info;
 };
 
 // 监听单词变化
-watch(() => props.wordInfo, async (newInfo) => {
+watch(wordInfo, async (newInfo) => {
   if (newInfo) {
     // 预加载音频
     preloadAudio(newInfo.word);
-    
+
     // 添加到历史记录
     await addWordToHistory(newInfo.word);
-    
+
     // 检查是否已收藏
     isFavorited.value = await isWordFavorited(newInfo.word);
-    
+
     // 自动播放
     if (settings.value?.autoPlay) {
       setTimeout(() => {
@@ -225,283 +260,315 @@ watch(() => props.wordInfo, async (newInfo) => {
   }
 });
 
-// 点击外部关闭
-const handleClickOutside = (e: MouseEvent) => {
-  if (props.visible && panelRef.value && !panelRef.value.contains(e.target as Node)) {
+// 监听文本选择
+const handleMouseUp = (e: MouseEvent) => {
+  if (visible.value && panelRef.value) {
+    const rootNode = panelRef.value.getRootNode() as ShadowRoot | Document;
+    const shadowHost = rootNode instanceof ShadowRoot ? rootNode.host : null;
+
+    // 如果我们点击的是 shadowHost 或者 panel 本身，不处理
+    if (e.composedPath().includes(panelRef.value) || (shadowHost && e.composedPath().includes(shadowHost))) {
+      return;
+    }
+  }
+
+  const selection = window.getSelection();
+  const text = selection?.toString().trim();
+
+  console.log('Selected text:', text , 'length:', text?.length);
+
+  if (text && text.length > 0) {
+    showPanel(text, e.clientX, e.clientY);
+  } else {
+    handleClose();
+  }
+};
+
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && visible.value) {
     handleClose();
   }
 };
 
 onMounted(async () => {
   settings.value = await getUserSettings();
-  document.addEventListener('click', handleClickOutside);
+  document.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('keydown', handleKeyDown);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
-  
+  document.removeEventListener('mouseup', handleMouseUp);
+  document.removeEventListener('keydown', handleKeyDown);
+
   // 清理当前播放的音频
-  if (currentAudio.value) {
-    currentAudio.value.pause();
-    currentAudio.value = null;
-  }
-  
-  // 清理预加载的音频
-  if (preloadedUsAudio.value) {
-    preloadedUsAudio.value.pause();
-    preloadedUsAudio.value = null;
-  }
-  if (preloadedUkAudio.value) {
-    preloadedUkAudio.value.pause();
-    preloadedUkAudio.value = null;
-  }
+  stopUnifiedAudio();
+  playingType.value = null;
 });
 </script>
 
 <style scoped>
-.floating-panel {
+.wordbook-panel {
   position: fixed;
   z-index: 999999;
-  min-width: 320px;
-  max-width: 400px;
-  background: white;
+  min-width: 280px;
+  max-width: 480px;
+  width: fit-content;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1f2937;
   overflow: hidden;
-  animation: fadeInUp 0.2s ease-out;
+  animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top left;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-@keyframes fadeInUp {
+@keyframes popIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: scale(0.96) translateY(4px);
   }
+
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: scale(1) translateY(0);
   }
 }
 
-/* 主题颜色 */
-.floating-panel.theme-purple {
-  --theme-color: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --theme-light: rgba(102, 126, 234, 0.1);
-  --theme-solid: #667eea;
-}
-
-.floating-panel.theme-blue {
-  --theme-color: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --theme-light: rgba(79, 172, 254, 0.1);
-  --theme-solid: #4facfe;
-}
-
-.floating-panel.theme-green {
-  --theme-color: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-  --theme-light: rgba(67, 233, 123, 0.1);
-  --theme-solid: #43e97b;
-}
-
-/* 加载状态 */
-.loading-state {
-  padding: 20px;
+/* 状态视图 (加载/错误) */
+.state-view {
+  padding: 32px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  color: #666;
+  justify-content: center;
+  gap: 12px;
 }
 
-.loading-spinner {
-  width: 24px;
-  height: 24px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid var(--theme-solid);
+.arco-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #3b82f6;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spinner 0.8s linear infinite;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+@keyframes spinner {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-/* 面板内容 */
-.panel-content {
-  padding: 0;
+.state-text {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
 }
 
-/* 标题栏 */
+/* 主内容区域 */
+.panel-main {
+  padding: 16px 20px;
+}
+
+/* 标题区 */
 .panel-header {
-  background: var(--theme-color);
-  color: white;
-  padding: 12px 16px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  margin-bottom: 12px;
 }
 
-.word-title {
-  font-size: 18px;
+.word-text {
+  margin: 0;
+  font-size: 20px;
   font-weight: 700;
-  letter-spacing: 0.3px;
+  color: #111827;
+  line-height: 1.25;
+  word-break: break-word;
+  padding-right: 12px;
+}
+
+.word-text.is-sentence {
+  font-weight: normal;
+  font-size: 15px;
 }
 
 .header-actions {
   display: flex;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.action-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.btn-star.favorited {
+  color: #eab308;
+  background: #fef9c3;
+}
+
+.btn-star.favorited:hover {
+  background: #fef08a;
+}
+
+/* 音标区 */
+.phonetics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.phonetic-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  border: 1px solid transparent;
+}
+
+.phonetic-item:hover {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.phonetic-item:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.phonetic-item.is-playing {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  box-shadow: inset 0 0 0 1px #bfdbfe, 0 1px 2px rgba(59, 130, 246, 0.05);
+}
+
+@keyframes playing-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.85);
+    opacity: 0.8;
+  }
+}
+
+.phonetic-item.is-playing .ph-icon {
+  color: #3b82f6;
+  animation: playing-pulse 0.6s ease-in-out infinite alternate;
+}
+
+.sentence-tts {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.ph-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.us-label {
+  background: #3b82f6;
+}
+
+.uk-label {
+  background: #8b5cf6;
+}
+
+.ph-text {
+  font-size: 13px;
+  color: #4b5563;
+  font-family: "Lucida Sans Unicode", "Arial Unicode MS", span;
+  padding-bottom: 1px;
+}
+
+.ph-icon {
+  color: #9ca3af;
+}
+
+.phonetic-item:hover .ph-icon {
+  color: #4b5563;
+}
+
+/* 分割线 */
+.panel-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #e5e7eb 10%, #e5e7eb 90%, transparent);
+  margin: 0 0 12px;
+}
+
+/* 翻译区 */
+.translations-box {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.icon-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  cursor: pointer;
+.trans-item {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: all 0.2s;
-}
-
-.icon-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(1.1);
-}
-
-.favorite-btn.favorited {
-  background: rgba(255, 215, 0, 0.3);
-  color: #ffd700;
-}
-
-/* 音标区域 */
-.phonetics-block {
-  padding: 12px 16px;
-  background: #fafbfc;
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.phonetics-container {
-  background: white;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  padding: 8px 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-}
-
-.phonetic-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 0;
+  align-items: flex-start;
   gap: 10px;
 }
 
-.phonetic-row:not(:last-child) {
-  border-bottom: 1px solid #f0f0f0;
-  margin-bottom: 6px;
-  padding-bottom: 8px;
-}
-
-.phonetic-info {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.region-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: 20px;
-  padding: 0 6px;
-  background: var(--theme-light);
-  color: var(--theme-solid);
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.phonetic-text {
-  flex: 1;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-  color: #1d2129;
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.4;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.play-button {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--theme-light);
-  color: var(--theme-solid);
-  border: none;
+.trans-dot {
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  background: #3b82f6;
+  margin-top: 8px;
+  flex-shrink: 0;
+  opacity: 0.6;
 }
 
-.play-button:hover {
-  background: var(--theme-solid);
-  color: white;
-  transform: scale(1.08);
-}
-
-.play-button:active {
-  transform: scale(0.95);
-}
-
-/* 翻译区域 */
-.translations-section {
-  padding: 12px 16px;
-}
-
-.translation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.translation-item {
-  padding: 8px 12px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  color: #333;
+.trans-text {
   font-size: 14px;
   line-height: 1.5;
-  transition: all 0.2s;
+  color: #374151;
 }
 
-.translation-item:hover {
-  background: #e8e9ea;
-}
-
-.no-translation {
-  padding: 16px;
+.empty-state {
   text-align: center;
-  color: #999;
   font-size: 13px;
-}
-
-/* 错误状态 */
-.error-state {
-  padding: 20px;
-  text-align: center;
-  color: #999;
-  font-size: 13px;
+  color: #9ca3af;
+  padding: 8px 0;
 }
 </style>
-
